@@ -46,6 +46,7 @@ typedef struct {
 
 @synthesize delegate = _delegate;
 
+#pragma mark - Overrides
 - (void)layoutSubviews {
     [super layoutSubviews];
     
@@ -80,9 +81,70 @@ typedef struct {
     }
 }
 
+- (void)dealloc {
+    free(_respondsOfDelegate);
+    free(_respondsOfDataSource);
+}
+
+- (instancetype)init {
+    if (self = [super init]) {
+        [self initialize];
+    }
+    return self;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    if (self = [super initWithFrame:frame]) {
+        [self initialize];
+    }
+    return self;
+}
+
+#pragma mark - Public Method
+- (__kindof UIView *)dequeueReusableItemWithIdentifier:(NSString *)identifier {
+    NSMutableArray *temp = self.reusePool[identifier];
+    
+    UIView *itemView = nil;
+    if (temp && temp.count > 0) {
+        itemView = [temp firstObject];
+        [temp removeObject:itemView];
+    } else {
+        temp = [NSMutableArray new];
+        [self.reusePool setObject:temp forKey:identifier];
+    }
+    return itemView;
+}
+
+- (void)reloadData {
+    if (_respondsOfDataSource->numberOfReuseView) {
+        self.number = [self.dataSource numberOfReuseView:self];
+    }
+    
+    [self reloadContentSize];
+    if (_respondsOfDelegate->scrollViewPageEndAtPage) {
+        [self.delegate reuseView:self scrollViewPageEndAtPage:self.showPage];
+    }
+    [self setNeedsLayout];
+}
+
+- (__kindof UIView *)itemViewAtIndexPath:(NSInteger)indexPath {
+    return [self.showPool objectForKey:[NSString stringWithFormat:@"%ld", indexPath]];
+}
+
+- (NSInteger)indexPathForItemView:(UIView *)itemView {
+    NSInteger indexPath = NSNotFound;
+    for (NSString *key in self.showPool.allKeys) {
+        if (self.showPool[key] == itemView) {
+            return key.integerValue;
+        }
+    }
+    return indexPath;
+}
+
+#pragma mark - Private Method
 - (void)clearCanReuseItemViewForShowRect:(CGRect)showRect {
     [self.subviews enumerateObjectsUsingBlock:^(__kindof UIView * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
-       
+        
         if (![obj isKindOfClass:[UIImageView class]] &&
             !CGRectIntersectsRect(showRect, obj.frame) &&
             !CGRectEqualToRect(obj.frame, CGRectZero)) {
@@ -157,20 +219,6 @@ typedef struct {
     }
 }
 
-- (__kindof UIView *)dequeueReusableItemWithIdentifier:(NSString *)identifier {
-    NSMutableArray *temp = self.reusePool[identifier];
-    
-    UIView *itemView = nil;
-    if (temp && temp.count > 0) {
-        itemView = [temp firstObject];
-        [temp removeObject:itemView];
-    } else {
-        temp = [NSMutableArray new];
-        [self.reusePool setObject:temp forKey:identifier];
-    }
-    return itemView;
-}
-
 - (void)recycleItemView:(UIView *)itemView {
     NSMutableArray* temp = [self.reusePool objectForKey:itemView.identification];
     if (temp == nil) {
@@ -185,18 +233,6 @@ typedef struct {
             break;
         }
     }
-}
-
-- (void)reloadData {
-    if (_respondsOfDataSource->numberOfReuseView) {
-        self.number = [self.dataSource numberOfReuseView:self];
-    }
-    
-    [self reloadContentSize];
-    if (_respondsOfDelegate->scrollViewPageEndAtPage) {
-        [self.delegate reuseView:self scrollViewPageEndAtPage:self.showPage];
-    }
-    [self setNeedsLayout];
 }
 
 - (void)reloadContentSize {
@@ -242,35 +278,20 @@ typedef struct {
     [self setContentSize:contentSize];
 }
 
-
-- (__kindof UIView *)itemViewAtIndexPath:(NSInteger)indexPath {
-    return [self.showPool objectForKey:[NSString stringWithFormat:@"%ld", indexPath]];
-}
-
 - (void)itemView:(UIView *)itemView enterShowPoolWithIndexPath:(NSInteger)indexPath {
     if (itemView) {
         NSString *key = [NSString stringWithFormat:@"%ld", indexPath];
+        [self bindTapActionWithItemView:itemView];
         [self.showPool setObject:itemView forKey:key];
     }
 }
 
-- (void)dealloc {
-    free(_respondsOfDelegate);
-    free(_respondsOfDataSource);
-}
-
-- (instancetype)init {
-    if (self = [super init]) {
-        [self initialize];
+- (void)bindTapActionWithItemView:(UIView *)itemView {
+    
+    if (itemView.gestureRecognizers.count == 0) {
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(eventOfItemViewTap:)];
+        [itemView addGestureRecognizer:tap];
     }
-    return self;
-}
-
-- (instancetype)initWithFrame:(CGRect)frame {
-    if (self = [super initWithFrame:frame]) {
-        [self initialize];
-    }
-    return self;
 }
 
 - (void)initialize {
@@ -279,6 +300,18 @@ typedef struct {
     _showPage = 0;
 }
 
+#pragma mark - Actions
+- (void)eventOfItemViewTap:(UITapGestureRecognizer *)tap {
+    UIView *itemView = tap.view;
+    
+    NSInteger indexPath = [self indexPathForItemView:itemView];
+    
+    if (indexPath != NSNotFound && _respondsOfDelegate->didActionAtIndexPath) {
+        [self.delegate reuseView:self didActionAtIndexPath:indexPath];
+    }
+}
+
+#pragma mark - Lazy Load
 - (void)setDataSource:(id<XFReuseViewDataSource>)dataSource {
     _dataSource = dataSource;
     
@@ -308,6 +341,5 @@ typedef struct {
     }
     return _respondsOfDataSource;
 }
-
 
 @end

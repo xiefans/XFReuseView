@@ -26,13 +26,12 @@
 }
 
 - (void)reuseView:(XFReuseView *)reuseView didActionAtIndexPath:(NSInteger)indexPath {
-    
+    NSLog(@"%ld", indexPath);
 }
 
-- (void)reuseView:(XFReuseView *)reuseView scrollViewPageEndAtPage:(NSInteger)indexPath {
-    UIView *view = [reuseView itemViewAtIndexPath:indexPath];
+- (void)reuseView:(XFReuseView *)reuseView scrollViewPageEndAtPage:(NSInteger)page {
     CGRect frame = reuseView.frame;
-    frame.size.height = 50.f * (indexPath + 1);
+    frame.size.height = 50.f * (page + 1);
     
     [UIView animateWithDuration:0.15 animations:^{
        reuseView.frame = frame;
@@ -55,6 +54,7 @@
         view.identification = @"temp";
         view.textColor = [UIColor whiteColor];
         view.textAlignment = NSTextAlignmentCenter;
+        view.userInteractionEnabled = YES;
     }
     
     view.text = [NSString stringWithFormat:@"%ld", indexPath];

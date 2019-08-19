@@ -46,6 +46,7 @@ typedef NS_ENUM(NSInteger , XFReuseViewScrollDirection) {
 
 - (__kindof UIView *)dequeueReusableItemWithIdentifier:(NSString *)identifier;
 - (__kindof UIView *)itemViewAtIndexPath:(NSInteger)indexPath;
+- (NSInteger)indexPathForItemView:(UIView *)itemView;
 
 - (void)reloadData;
 
