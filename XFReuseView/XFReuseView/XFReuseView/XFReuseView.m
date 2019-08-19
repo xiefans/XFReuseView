@@ -13,6 +13,7 @@ CGFloat const XFReuseViewFixSuperView = -0.387;
 typedef struct {
     unsigned didActionAtIndexPath : 1;
     unsigned scrollViewPageEndAtPage : 1;
+    unsigned itemViewLayoutWithFrame : 1;
 } RespondsOfDelegate;
 
 typedef struct {
@@ -29,10 +30,6 @@ typedef struct {
 @property (nonatomic, strong) NSMutableDictionary *showPool;
 /** 总数 */
 @property (nonatomic, assign) NSInteger number;
-/** 当前视图显示的 第一个视图 */
-@property (nonatomic, strong) UIView *topView;
-/** 当前视图显示的 最后一个视图 */
-@property (nonatomic, strong) UIView *bottomView;
 
 /** 显示的页数 */
 @property (nonatomic, assign)NSInteger showPage;
@@ -60,30 +57,14 @@ typedef struct {
     [self clearCanReuseItemViewForShowRect:showRect];
     [self reuseItemViewForShowRect:showRect];
     
-    if (self.isDecelerating && _respondsOfDelegate->scrollViewPageEndAtPage && self.pagingEnabled) {
-        NSInteger page = 0;
-        
-        switch (self.scrollDirection) {
-            case XFReuseViewScrollDirectionHorizontal:
-                page = (self.contentOffset.x + self.frame.size.width / 2.f) / self.frame.size.width;
-                break;
-            case XFReuseViewScrollDirectionVertical:
-                page = (self.contentOffset.y + self.frame.size.height / 2.f) / self.frame.size.height;
-                break;
-            default:
-                break;
-        }
-        if (page != self.showPage) {
-            
-            [self.delegate reuseView:self scrollViewPageEndAtPage:page];
-            self.showPage = page;
-        }
+    if (self.isDecelerating) {
+        [self scrollViewPageEnd];
     }
 }
 
 - (void)dealloc {
-    free(_respondsOfDelegate);
-    free(_respondsOfDataSource);
+    free(self.respondsOfDelegate);
+    free(self.respondsOfDataSource);
 }
 
 - (instancetype)init {
@@ -98,6 +79,14 @@ typedef struct {
         [self initialize];
     }
     return self;
+}
+
+- (void)setContentOffset:(CGPoint)contentOffset animated:(BOOL)animated {
+    [super setContentOffset:contentOffset animated:animated];
+    
+    if (!animated) {
+        [self scrollViewPageEnd];
+    }
 }
 
 #pragma mark - Public Method
@@ -116,15 +105,15 @@ typedef struct {
 }
 
 - (void)reloadData {
-    if (_respondsOfDataSource->numberOfReuseView) {
+    if (self.respondsOfDataSource->numberOfReuseView) {
         self.number = [self.dataSource numberOfReuseView:self];
     }
     
     [self reloadContentSize];
-    if (_respondsOfDelegate->scrollViewPageEndAtPage) {
+    [self setNeedsLayout];
+    if (self.respondsOfDelegate->scrollViewPageEndAtPage) {
         [self.delegate reuseView:self scrollViewPageEndAtPage:self.showPage];
     }
-    [self setNeedsLayout];
 }
 
 - (__kindof UIView *)itemViewAtIndexPath:(NSInteger)indexPath {
@@ -147,9 +136,8 @@ typedef struct {
         
         if (![obj isKindOfClass:[UIImageView class]] &&
             !CGRectIntersectsRect(showRect, obj.frame) &&
-            !CGRectEqualToRect(obj.frame, CGRectZero)) {
+            !obj.hidden) {
             //回收
-            obj.frame = CGRectZero;
             [self recycleItemView:obj];
         }
     }];
@@ -160,10 +148,17 @@ typedef struct {
     CGFloat size = 0.f;
     for (int i = 0; i < self.number; i ++) {
         
+        UIView *itemView = nil;
+        if (self.respondsOfDataSource->itemViewAtIndexPath) {
+            itemView = [self.dataSource reuseView:self itemViewAtIndexPath:i];
+        } else {
+            itemView = [self dequeueReusableItemWithIdentifier:@"item"];
+        }
+        
         //该位置上视图的大小
         CGRect itemFrame = CGRectZero;
         CGSize itemSize = CGSizeZero;
-        if (_respondsOfDataSource->itemViewSizeAtIndexPath) {
+        if (self.respondsOfDataSource->itemViewSizeAtIndexPath) {
             itemSize = [self.dataSource reuseView:self itemViewSizeAtIndexPath:i];
         } else {
             itemSize = self.frame.size;
@@ -202,24 +197,22 @@ typedef struct {
             continue;
         }
         
-        UIView *itemView = nil;
-        if (_respondsOfDataSource->itemViewAtIndexPath) {
-            itemView = [self.dataSource reuseView:self itemViewAtIndexPath:i];
-        } else {
-            itemView = [self dequeueReusableItemWithIdentifier:@"item"];
-        }
-        
         if (!itemView.superview) {
             [self addSubview:itemView];
         }
         
-        [self itemView:itemView enterShowPoolWithIndexPath:i];
+        if (self.respondsOfDelegate->itemViewLayoutWithFrame) {
+            [self.delegate reuseView:self itemView:itemView layoutWithFrame:itemFrame];
+        } else {
+            itemView.frame = itemFrame;
+        }
         
-        itemView.frame = itemFrame;
+        [self itemView:itemView enterShowPoolWithIndexPath:i];
     }
 }
 
 - (void)recycleItemView:(UIView *)itemView {
+    itemView.hidden = YES;
     NSMutableArray* temp = [self.reusePool objectForKey:itemView.identification];
     if (temp == nil) {
         temp = [NSMutableArray new];
@@ -237,15 +230,11 @@ typedef struct {
 
 - (void)reloadContentSize {
     CGSize contentSize = CGSizeZero;
-    if (_respondsOfDataSource->itemViewSizeAtIndexPath) {
+    if (self.respondsOfDataSource->itemViewSizeAtIndexPath) {
         for (int i = 0; i < self.number; i ++) {
             
-            CGSize size = CGSizeZero;
-            if (_respondsOfDataSource->itemViewSizeAtIndexPath) {
-                size = [self.dataSource reuseView:self itemViewSizeAtIndexPath:i];
-            } else {
-                size = self.frame.size;
-            }
+            CGSize size = [self.dataSource reuseView:self itemViewSizeAtIndexPath:i];
+            
             if (size.width == XFReuseViewFixSuperView) {
                 size.width = self.frame.size.width;
             }
@@ -280,6 +269,7 @@ typedef struct {
 
 - (void)itemView:(UIView *)itemView enterShowPoolWithIndexPath:(NSInteger)indexPath {
     if (itemView) {
+        itemView.hidden = NO;
         NSString *key = [NSString stringWithFormat:@"%ld", indexPath];
         [self bindTapActionWithItemView:itemView];
         [self.showPool setObject:itemView forKey:key];
@@ -291,6 +281,29 @@ typedef struct {
     if (itemView.gestureRecognizers.count == 0) {
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(eventOfItemViewTap:)];
         [itemView addGestureRecognizer:tap];
+    }
+}
+
+- (void)scrollViewPageEnd {
+    
+    if (self.respondsOfDelegate->scrollViewPageEndAtPage && self.pagingEnabled) {
+        NSInteger page = 0;
+        
+        switch (self.scrollDirection) {
+            case XFReuseViewScrollDirectionHorizontal:
+                page = (self.contentOffset.x + self.frame.size.width / 2.f) / self.frame.size.width;
+                break;
+            case XFReuseViewScrollDirectionVertical:
+                page = (self.contentOffset.y + self.frame.size.height / 2.f) / self.frame.size.height;
+                break;
+            default:
+                break;
+        }
+        if (page != self.showPage) {
+            
+            [self.delegate reuseView:self scrollViewPageEndAtPage:page];
+            self.showPage = page;
+        }
     }
 }
 
@@ -306,7 +319,7 @@ typedef struct {
     
     NSInteger indexPath = [self indexPathForItemView:itemView];
     
-    if (indexPath != NSNotFound && _respondsOfDelegate->didActionAtIndexPath) {
+    if (indexPath != NSNotFound && self.respondsOfDelegate->didActionAtIndexPath) {
         [self.delegate reuseView:self didActionAtIndexPath:indexPath];
     }
 }
@@ -326,6 +339,7 @@ typedef struct {
     
     self.respondsOfDelegate->didActionAtIndexPath = [delegate respondsToSelector:@selector(reuseView:didActionAtIndexPath:)];
     self.respondsOfDelegate->scrollViewPageEndAtPage = [delegate respondsToSelector:@selector(reuseView:scrollViewPageEndAtPage:)];
+    self.respondsOfDelegate->itemViewLayoutWithFrame = [delegate respondsToSelector:@selector(reuseView:itemView:layoutWithFrame:)];
 }
 
 - (RespondsOfDelegate *)respondsOfDelegate {

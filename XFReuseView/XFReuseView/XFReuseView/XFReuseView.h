@@ -33,6 +33,7 @@ typedef NS_ENUM(NSInteger , XFReuseViewScrollDirection) {
 @optional
 - (void)reuseView:(XFReuseView *)reuseView didActionAtIndexPath:(NSInteger)indexPath;
 - (void)reuseView:(XFReuseView *)reuseView scrollViewPageEndAtPage:(NSInteger)page;
+- (void)reuseView:(XFReuseView *)reuseView itemView:(__kindof UIView *)itemView layoutWithFrame:(CGRect)itemFrame;
 
 @end
 
